@@ -1,21 +1,21 @@
+# decoders.py
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class MLPDecoder(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dims=[256, 128], dropout=0.2, use_residual=True):
+    def __init__(self, input_dim, output_dim, hidden_dims=[256, 128], dropout=0.2):
         """
-        MLP Decoder with optional residual connection.
+        MLP Decoder that outputs delta expression changes to be added to baseline.
 
         Args:
-            input_dim (int): Input feature size (from encoder/GNN).
-            output_dim (int): Output dimension (number of genes).
-            hidden_dims (list): Hidden layer sizes.
+            input_dim (int): Dimension of encoded input (from encoder or GNN).
+            output_dim (int): Number of genes (output dimension).
+            hidden_dims (list of int): Sizes of hidden layers.
             dropout (float): Dropout probability.
-            use_residual (bool): Whether to add residual skip connection from input.
         """
         super(MLPDecoder, self).__init__()
-        self.use_residual = use_residual and (input_dim == output_dim)
-
         layers = []
         prev_dim = input_dim
         for h in hidden_dims:
@@ -27,11 +27,17 @@ class MLPDecoder(nn.Module):
         self.decoder = nn.Sequential(*layers)
         self.final_layer = nn.Linear(prev_dim, output_dim)
 
-    def forward(self, x):
-        out = self.decoder(x)
-        out = self.final_layer(out)
+    def forward(self, encoded_input, baseline_expression):
+        """
+        Predict the perturbed expression by applying delta to baseline.
 
-        if self.use_residual:
-            out = out + x  # Add residual (only valid when input_dim == output_dim)
-        return out
+        Args:
+            encoded_input (Tensor): Latent features from encoder/GNN [batch_size, input_dim].
+            baseline_expression (Tensor): Pre-perturbation expression profile [batch_size, output_dim].
+
+        Returns:
+            Tensor: Predicted perturbed expression [batch_size, output_dim].
+        """
+        delta = self.final_layer(self.decoder(encoded_input))
+        return baseline_expression + delta
 
